@@ -1,3 +1,12 @@
+# ORB-SLAM2_Commit
+
+## 阅读进度
+- [x] Tracking.cpp
+
+
+## 跟踪线程Tracking.cpp 主流图
+![](README/ORB_SLAM2_MONO_Track().png)
+
 # ORB-SLAM2
 **Authors:** [Raul Mur-Artal](http://webdiis.unizar.es/~raulmur/), [Juan D. Tardos](http://webdiis.unizar.es/~jdtardos/), [J. M. M. Montiel](http://webdiis.unizar.es/~josemari/) and [Dorian Galvez-Lopez](http://doriangalvez.com/) ([DBoW2](https://github.com/dorian3d/DBoW2))
 
