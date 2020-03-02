@@ -126,6 +126,7 @@ protected:
     LoopClosing* mpLoopCloser;
     Tracking* mpTracker;
 
+    //待处理关键帧列表
     std::list<KeyFrame*> mlNewKeyFrames;
 
     KeyFrame* mpCurrentKeyFrame;

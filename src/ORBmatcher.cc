@@ -893,9 +893,15 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
 
     return nmatches;
 }
-
+/**
+ * 将vpMapPoints中的mappoint与pKF的特征点进行匹配，若匹配的特征点已有mappoint与其匹配，
+ * 则选择其一与此特征点匹配，并抹去没有选择的那个mappoint，此为mappoint的融合
+ * @param radius 为在vpMapPoints投影到pKF搜索待匹配的特征点时的方框边长
+ * @return 融合的mappoint的数量
+ */
 int ORBmatcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const float th)
 {
+    //取关键帧位姿
     cv::Mat Rcw = pKF->GetRotation();
     cv::Mat tcw = pKF->GetTranslation();
 
@@ -919,7 +925,7 @@ int ORBmatcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const
         if(!pMP)
             continue;
 
-	//pMP->IsInKeyFrame(pKF)表示pMP已经被pKF观测了，有了对应了特征点，也就不用融合了
+        //pMP->IsInKeyFrame(pKF)表示pMP已经被pKF观测了，有了对应了特征点，也就不用融合了
         if(pMP->isBad() || pMP->IsInKeyFrame(pKF))
             continue;
 
@@ -927,74 +933,80 @@ int ORBmatcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const
         cv::Mat p3Dc = Rcw*p3Dw + tcw;
 
         // Depth must be positive
-	//如果深度为负
+        //如果深度为负
         if(p3Dc.at<float>(2)<0.0f)
             continue;
 
-	//尺度归一化
+        //归一化平面
         const float invz = 1/p3Dc.at<float>(2);
         const float x = p3Dc.at<float>(0)*invz;
         const float y = p3Dc.at<float>(1)*invz;
-
+        //相机模型
         const float u = fx*x+cx;
         const float v = fy*y+cy;
 
         // Point must be inside the image
-	//uv是pMP投影到pKF的像素坐标
-	//如果pMP不在pKF图像中
-        if(!pKF->IsInImage(u,v))
+        //uv是pMP投影到pKF的像素坐标
+        if(!pKF->IsInImage(u,v)) //边界检测
             continue;
 
+        //bf=基线*fx
+        //ur 如果是双目的，那么这个就是右侧相机中的对应点的u值
         const float ur = u-bf*invz;
-
+        // 观测到该点的距离上下限
         const float maxDistance = pMP->GetMaxDistanceInvariance();
         const float minDistance = pMP->GetMinDistanceInvariance();
+        // 取pMP点与相机光心距离
         cv::Mat PO = p3Dw-Ow;
         const float dist3D = cv::norm(PO);
 
         // Depth must be inside the scale pyramid of the image
-	//深度必须在尺度金字塔范围内
+        // pMP点与相机光心距离在尺度金字塔范围内
         if(dist3D<minDistance || dist3D>maxDistance )
             continue;
 
         // Viewing angle must be less than 60 deg
         cv::Mat Pn = pMP->GetNormal();
 
-	//如果PO和Pn的夹角大于60度
+        //如果PO和Pn的夹角大于60度
+        //即相机光心与pMP点连线与该pMP点的平均的观测方向 超过60度，则跳过
         if(PO.dot(Pn)<0.5*dist3D)
             continue;
 
         int nPredictedLevel = pMP->PredictScale(dist3D,pKF);
 
         // Search in a radius
-	//求出radius
+        // 求出radius
         const float radius = th*pKF->mvScaleFactors[nPredictedLevel];
 
-	//获得pKF在uv附近的特征点
+        //获得pKF在uv附近的特征点
         const vector<size_t> vIndices = pKF->GetFeaturesInArea(u,v,radius);
 
         if(vIndices.empty())
             continue;
 
         // Match to the most similar keypoint in the radius
+        // 取最接近最相似的特征点作为最佳匹配
 
+        //取当前pMP的对应的特征点描述符
         const cv::Mat dMP = pMP->GetDescriptor();
 
         int bestDist = 256;
         int bestIdx = -1;
-	//遍历vIndices，找出在vIndices中与pMP的最佳匹配
+        //遍历vIndices，找出在vIndices中与pMP的最佳匹配
         for(vector<size_t>::const_iterator vit=vIndices.begin(), vend=vIndices.end(); vit!=vend; vit++)
         {
             const size_t idx = *vit;
 
             const cv::KeyPoint &kp = pKF->mvKeysUn[idx];
 
+            //金字塔层数限定
             const int &kpLevel= kp.octave;
 
             if(kpLevel<nPredictedLevel-1 || kpLevel>nPredictedLevel)
                 continue;
-
-            if(pKF->mvuRight[idx]>=0)
+            //金字塔，距离误差限定
+            if(pKF->mvuRight[idx]>=0)   //双目
             {
                 // Check reprojection error in stereo
                 const float &kpx = kp.pt.x;
@@ -1019,7 +1031,7 @@ int ORBmatcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const
                 if(e2*pKF->mvInvLevelSigma2[kpLevel]>5.99)
                     continue;
             }
-
+            //描述符距离限定
             const cv::Mat &dKF = pKF->mDescriptors.row(idx);
 
             const int dist = DescriptorDistance(dMP,dKF);
@@ -1032,13 +1044,18 @@ int ORBmatcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const
         }
 
         // If there is already a MapPoint replace otherwise add new measurement
+        // 如果存在上面的条件都符合的在pKF帧的特征点
         if(bestDist<=TH_LOW)
         {
+            //取这个特征点对应的mappoint
             MapPoint* pMPinKF = pKF->GetMapPoint(bestIdx);
+            //检查这个特征点是否已经有对应的mappoint
             if(pMPinKF)
             {
                 if(!pMPinKF->isBad())
                 {
+                    //如果已经有对应的mappoint，
+                    //则比较原来的mappoint与当前这个pMP的被观测次数，取被观测次数大的那个点
                     if(pMPinKF->Observations()>pMP->Observations())
                         pMP->Replace(pMPinKF);
                     else
@@ -1047,6 +1064,7 @@ int ORBmatcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const
             }
             else
             {
+                //否则，将当前这个pMP点与pKF关键帧建立连接
                 pMP->AddObservation(pKF,bestIdx);
                 pKF->AddMapPoint(pMP,bestIdx);
             }

@@ -33,7 +33,7 @@ void Map::AddKeyFrame(KeyFrame *pKF)
 {
     unique_lock<mutex> lock(mMutexMap);
     mspKeyFrames.insert(pKF);
-    if(pKF->mnId>mnMaxKFid)
+    if(pKF->mnId>mnMaxKFid) //更新地图最大关键帧id
         mnMaxKFid=pKF->mnId;
 }
 

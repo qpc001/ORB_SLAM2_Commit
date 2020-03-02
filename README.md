@@ -2,10 +2,22 @@
 
 ## 阅读进度
 - [x] Tracking.cpp
+- [x] LocalMapping.cpp
 
 
 ## 跟踪线程Tracking.cpp 主流图
 ![](README/ORB_SLAM2_MONO_Track().png)
+
+
+## 局部优化建图LocalMapping.cpp的XMind流程图
+
+需要下载XMind 8来进行辅助阅读，文件在Xmind_flow文件夹
+
+![](README/2020-03-02-17-52-06.png)
+
+![](README/2020-03-02-17-52-26.png)
+
+![](README/2020-03-02-17-52-44.png)
 
 # ORB-SLAM2
 **Authors:** [Raul Mur-Artal](http://webdiis.unizar.es/~raulmur/), [Juan D. Tardos](http://webdiis.unizar.es/~jdtardos/), [J. M. M. Montiel](http://webdiis.unizar.es/~josemari/) and [Dorian Galvez-Lopez](http://doriangalvez.com/) ([DBoW2](https://github.com/dorian3d/DBoW2))

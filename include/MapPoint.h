@@ -161,6 +161,7 @@ protected:
 
      // Tracking counters
      //预测这个mappoint点能被多少Frame看到
+     //mnVisible=有多少Frame看到+(理论)有多上Frame看到  ，这是个估计值
      //它在SearchLocalPoints()中更新
      int mnVisible;
      //它在TrackLocalMap()中更新

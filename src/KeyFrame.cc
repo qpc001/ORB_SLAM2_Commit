@@ -315,7 +315,7 @@ void KeyFrame::UpdateConnections()
 
     //For all map points in keyframe check in which other keyframes are they seen
     //Increase counter for those keyframes
-    // 计算每一个关键帧都有多少其他关键帧与它存在共视关系，结果放在KFcounter
+    //计算每一个关键帧都有多少其他关键帧与它存在共视关系，结果放在KFcounter
     //遍历此关键帧可以看到的mappoint
     for(vector<MapPoint*>::iterator vit=vpMP.begin(), vend=vpMP.end(); vit!=vend; vit++)
     {
@@ -332,6 +332,7 @@ void KeyFrame::UpdateConnections()
 	//遍历此mappoint可以被看到的所有关键帧
         for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
         {
+            //如果某个关键帧的id就是当前关键帧，则跳过
             if(mit->first->mnId==mnId)
                 continue;
             //等价于：KFcounter[KeyFrame]++
@@ -399,19 +400,19 @@ void KeyFrame::UpdateConnections()
         unique_lock<mutex> lockCon(mMutexConnections);
 
         // mspConnectedKeyFrames = spConnectedKeyFrames;
-    // 更新本关键的共视图
+        // 更新本关键的共视图
         mConnectedKeyFrameWeights = KFcounter;
 	
-	//mvpOrderedConnectedKeyFrames权重由大到小排列
+        //mvpOrderedConnectedKeyFrames权重由大到小排列
         mvpOrderedConnectedKeyFrames = vector<KeyFrame*>(lKFs.begin(),lKFs.end());
         mvOrderedWeights = vector<int>(lWs.begin(), lWs.end());
 
-	//如果不是第一个关键帧，且此节点没有父节点
+        //如果不是第一个关键帧，且此节点没有父节点
         if(mbFirstConnection && mnId!=0)
         {
-	    //共视程度最高的那个关键帧设置为此节点在Spanning Tree中的父节点
+            //共视程度最高的那个关键帧设置为此节点在Spanning Tree中的父节点
             mpParent = mvpOrderedConnectedKeyFrames.front();
-	    //共视程度最高的那个关键帧在在Spanning Tree中的子节点设置为此关键帧
+            //共视程度最高的那个关键帧在在Spanning Tree中的子节点设置为此关键帧
             mpParent->AddChild(this);
             mbFirstConnection = false;
         }
@@ -606,7 +607,13 @@ void KeyFrame::EraseConnection(KeyFrame* pKF)
     if(bUpdate)
         UpdateBestCovisibles();
 }
-
+/** 参考Frame的GetFeaturesInArea
+  * 找到在 以x, y为中心,边长为2r的方形内的特征点
+  * @param x        图像坐标u
+  * @param y        图像坐标v
+  * @param r        边长
+  * @return         满足条件的特征点的序号
+  */
 vector<size_t> KeyFrame::GetFeaturesInArea(const float &x, const float &y, const float &r) const
 {
     vector<size_t> vIndices;

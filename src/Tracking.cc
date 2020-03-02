@@ -268,6 +268,7 @@ cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp)
     //跟踪
     Track();
 
+    //返回跟踪结果
     return mCurrentFrame.mTcw.clone();
 }
 
@@ -1193,7 +1194,7 @@ bool Tracking::NeedNewKeyFrame()
         return false;
 
     // If Local Mapping is freezed by a Loop Closure do not insert keyframes
-    // 如果地图被回环线程锁定了，则不插入关键帧
+    // 如果地图被回环线程锁定了或者建图器已经关闭，则不插入关键帧
     if(mpLocalMapper->isStopped() || mpLocalMapper->stopRequested())
         return false;
 
@@ -1419,7 +1420,7 @@ void Tracking::SearchLocalPoints()
     for(vector<MapPoint*>::iterator vit=mvpLocalMapPoints.begin(), vend=mvpLocalMapPoints.end(); vit!=vend; vit++)
     {
         MapPoint* pMP = *vit;
-        //如果这个局部地图点是与当前帧相关联的(或者说当前帧能看到的),就不剔除
+        //如果这个局部地图点是与当前帧相关联的(或者说当前帧能看到的),就跳过
         if(pMP->mnLastFrameSeen == mCurrentFrame.mnId)
             continue;
         if(pMP->isBad())

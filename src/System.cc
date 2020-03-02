@@ -81,12 +81,17 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     mpFrameDrawer = new FrameDrawer(mpMap);
     mpMapDrawer = new MapDrawer(mpMap, strSettingsFile);
 
-    //Initialize the Tracking thread
+
     //(it will live in the main thread of execution, the one that called this constructor)
+    //这是主线程，这里只是new了 Tracking这个对象
+    //在main中会进行调用，（来一张图片，调用一次）
     mpTracker = new Tracking(this, mpVocabulary, mpFrameDrawer, mpMapDrawer,
                              mpMap, mpKeyFrameDatabase, strSettingsFile, mSensor);
 
+    //Initialize the Tracking thread
+
     //Initialize the Local Mapping thread and launch
+    //初始化并启动LocalMapping线程（这是真的线程）
     mpLocalMapper = new LocalMapping(mpMap, mSensor==MONOCULAR);
     mptLocalMapping = new thread(&ORB_SLAM2::LocalMapping::Run,mpLocalMapper);
 
@@ -103,6 +108,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     }
 
     //Set pointers between threads
+    //建立关联
     mpTracker->SetLocalMapper(mpLocalMapper);
     mpTracker->SetLoopClosing(mpLoopCloser);
 
@@ -215,6 +221,7 @@ cv::Mat System::TrackRGBD(const cv::Mat &im, const cv::Mat &depthmap, const doub
     return Tcw;
 }
 
+// 每一帧调用一次
 cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp)
 {
     if(mSensor!=MONOCULAR)
@@ -227,8 +234,8 @@ cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp)
     {
 	
         unique_lock<mutex> lock(mMutexMode);
-	//LocalizationMode（重定位）模式是否激活，如果激活则要求停止LocalMapper
-	// 在viewer中有个开关menuLocalizationMode，有它控制是否ActivateLocalizationMode，并最终管控mbOnlyTracking
+        //LocalizationMode（纯定位）模式是否激活，如果激活则要求停止LocalMapper
+        //在viewer中有个开关menuLocalizationMode，有它控制是否ActivateLocalizationMode，并最终管控mbOnlyTracking
         if(mbActivateLocalizationMode)
         {
             mpLocalMapper->RequestStop();
@@ -263,7 +270,7 @@ cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp)
     }
     }
     
-    //将图像和时间戳交给tracking线程处理
+    //调用mpTracker->GrabImageMonocular(图像，时间戳)
     cv::Mat Tcw = mpTracker->GrabImageMonocular(im,timestamp);
 
     unique_lock<mutex> lock2(mMutexState);

@@ -243,6 +243,7 @@ float MapPoint::GetFoundRatio()
     return static_cast<float>(mnFound)/mnVisible;
 }
 
+//在此mappoint能被看到的特征点中找出最能代表此mappoint的描述子
 void MapPoint::ComputeDistinctiveDescriptors()
 {
     // Retrieve all observed descriptors
