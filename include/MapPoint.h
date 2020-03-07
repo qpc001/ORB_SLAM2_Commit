@@ -126,9 +126,10 @@ public:
 
     // Variables used by loop closing
     long unsigned int mnLoopPointForKF;
-    //发起闭环检测的关键帧
+    //标志该mappoint是否修正过
     long unsigned int mnCorrectedByKF;
     //在loop中是通过mnCorrectedReference关键帧来修正此点的
+    //表明这个mappoint是使用id为mnCorrectedReference这个关键帧来修正的
     long unsigned int mnCorrectedReference; 
     //global BA的优化变量mappoint结果
     cv::Mat mPosGBA;

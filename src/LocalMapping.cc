@@ -78,6 +78,7 @@ void LocalMapping::Run()
             * 2.计算这些关键帧和当前关键帧的F矩阵；
             * 3.在满足对级约束条件下，匹配关键帧之间的特征点，通过BOW加速匹配；
             */
+            // 相机运动过程中与相邻关键帧通过三角化恢复出一些MapPoints
             CreateNewMapPoints();
 
             //如果已经处理完队列中的最后的一个关键帧
@@ -138,6 +139,13 @@ void LocalMapping::Run()
     SetFinish();
 }
 
+/**
+ * @brief 插入关键帧
+ *
+ * 将关键帧插入到地图中，以便将来进行局部地图优化
+ * 这里仅仅是将关键帧插入到列表中进行等待
+ * @param pKF KeyFrame
+ */
 void LocalMapping::InsertKeyFrame(KeyFrame *pKF)
 {
     unique_lock<mutex> lock(mMutexNewKFs);
@@ -152,9 +160,17 @@ bool LocalMapping::CheckNewKeyFrames()
     return(!mlNewKeyFrames.empty());
 }
 
+/**
+ * @brief 处理列表中的关键帧
+ *
+ * - 计算Bow，加速三角化新的MapPoints
+ * - 关联当前关键帧至MapPoints，并更新MapPoints的平均观测方向和观测距离范围
+ * - 插入关键帧，更新Covisibility图和Essential图
+ * @see VI-A keyframe insertion
+ */
 void LocalMapping::ProcessNewKeyFrame()
 {
-    // 从缓冲队列中取出一帧关键帧
+    // 步骤1：从缓冲队列中取出一帧关键帧
     // Tracking线程向LocalMapping中插入关键帧存在该队列中
     {
         unique_lock<mutex> lock(mMutexNewKFs);
@@ -162,10 +178,12 @@ void LocalMapping::ProcessNewKeyFrame()
         mlNewKeyFrames.pop_front();
     }
 
+    // 步骤2：计算该关键帧特征点的Bow映射关系
     // Compute Bags of Words structures
     //计算此关键帧的mBowVec，mFeatVec
     mpCurrentKeyFrame->ComputeBoW();
 
+    // 步骤3：跟踪局部地图过程中新匹配上的MapPoints和当前关键帧绑定
     // Associate MapPoints to the new keyframe and update normal and descriptor
     // 遍历和关键帧匹配的mappoint
     const vector<MapPoint*> vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
@@ -199,10 +217,12 @@ void LocalMapping::ProcessNewKeyFrame()
         }
     }    
 
+    // 步骤4：更新关键帧间的连接关系，Covisibility图和Essential图(tree)
     // Update links in the Covisibility Graph
-    //更新共视图Covisibility graph,spanningtree
+    //更新共视图Covisibility graph,spanning tree=Essential图(tree)
     mpCurrentKeyFrame->UpdateConnections();
 
+    // 步骤5：将该关键帧插入到地图中
     // Insert Keyframe in Map
     // 将该关键帧插入到地图map中
     mpMap->AddKeyFrame(mpCurrentKeyFrame);
@@ -226,19 +246,22 @@ void LocalMapping::MapPointCulling()
     while(lit!=mlpRecentAddedMapPoints.end())
     {
         MapPoint* pMP = *lit;
-        // 已经是坏点的MapPoints直接从检查链表中删除
+        // 步骤1：已经是坏点的MapPoints直接从检查链表中删除
         if(pMP->isBad())
         {
             lit = mlpRecentAddedMapPoints.erase(lit);
         }
+        // 步骤2：将不满足VI-B条件的MapPoint剔除
+        // VI-B 条件1：
+        // IncreaseFound / IncreaseVisible < 25%，注意不一定是关键帧。
         // 跟踪到该MapPoint的Frame数相比预计可观测到该MapPoint的Frame数的比例需大于25%
         // 这个预计的值是根据(视野范围来估计的值)
-        // IncreaseFound / IncreaseVisible < 25%，注意不一定是关键帧。
         else if(pMP->GetFoundRatio()<0.25f )
         {
             pMP->SetBadFlag();
             lit = mlpRecentAddedMapPoints.erase(lit);
         }
+        // 步骤3：将不满足VI-B条件的MapPoint剔除
         // VI-B 条件2：从该点建立开始，到现在已经过了不小于2个关键帧
         // 而观测到该点的关键帧数却不超过cnThObs帧，那么该点检验不合格
         else if(((int)nCurrentKFid-(int)pMP->mnFirstKFid)>=2 && pMP->Observations()<=cnThObs)
@@ -261,6 +284,8 @@ void LocalMapping::CreateNewMapPoints()
     int nn = 10;
     if(mbMonocular)
         nn=20;
+
+    // 步骤1：
     // 在当前关键帧的Covisibility graph中找到共视程度最高的nn帧相邻帧存入vpNeighKFs
     // 单目取前20帧，双目取前10帧
     const vector<KeyFrame*> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
@@ -271,7 +296,7 @@ void LocalMapping::CreateNewMapPoints()
     cv::Mat Rcw1 = mpCurrentKeyFrame->GetRotation();
     cv::Mat Rwc1 = Rcw1.t();
     cv::Mat tcw1 = mpCurrentKeyFrame->GetTranslation();
-    cv::Mat Tcw1(3,4,CV_32F);
+    cv::Mat Tcw1(3,4,CV_32F);   //转成3x4矩阵
     Rcw1.copyTo(Tcw1.colRange(0,3));
     tcw1.copyTo(Tcw1.col(3));
     // 得到当前关键帧光心在世界坐标系中的坐标
@@ -289,37 +314,40 @@ void LocalMapping::CreateNewMapPoints()
     int nnew=0;
 
     // Search matches with epipolar restriction and triangulate
-    //遍历相邻关键帧vpNeighKFs
+    // 步骤2：遍历相邻关键帧vpNeighKFs
     for(size_t i=0; i<vpNeighKFs.size(); i++)
     {
         if(i>0 && CheckNewKeyFrames())
             return;
 
+        // 取相邻关键帧pKF2
         KeyFrame* pKF2 = vpNeighKFs[i];
 
         // Check first that baseline is not too short
-	// 邻接的关键帧在世界坐标系中的坐标
+        // 邻接的关键帧相机光心在世界坐标系中的坐标
         cv::Mat Ow2 = pKF2->GetCameraCenter();
-	// 基线向量，两个关键帧间的相机转移矩阵
+        // 基线向量，
         cv::Mat vBaseline = Ow2-Ow1;
-	// 基线长度，基线长度
+        // 基线长度，基线长度
         const float baseline = cv::norm(vBaseline);
 
-	// 判断相机运动的基线是不是足够长
+        // 判断相机运动的基线是不是足够长
         if(!mbMonocular)
         {
-	    // 如果是立体相机，关键帧间距太小时不生成3D点
+            //双目或RGBD
+            //关键帧间距太小时不生成3D点
             if(baseline<pKF2->mb)
             continue;
         }
         else
         {
-	    // 邻接关键帧的场景深度中值
+            //单目
+            // 邻接关键帧的场景深度中值
             const float medianDepthKF2 = pKF2->ComputeSceneMedianDepth(2);
-	    // baseline与景深的比例
+            // baseline与景深的比例
             const float ratioBaselineDepth = baseline/medianDepthKF2;
 	  
-	    // 如果特别远(比例特别小)，那么不考虑当前邻接的关键帧，不生成3D点
+            // 如果特别远(比例特别小)，那么不考虑当前邻接的关键帧，不生成3D点
             if(ratioBaselineDepth<0.01)
                 continue;
         }
@@ -329,9 +357,9 @@ void LocalMapping::CreateNewMapPoints()
         cv::Mat F12 = ComputeF12(mpCurrentKeyFrame,pKF2);
 
         // Search matches that fullfil epipolar constraint
-	// 通过极线约束限制匹配时的搜索范围，进行特征点匹配
+        // 通过极线约束限制匹配时的搜索范围，进行特征点匹配
         vector<pair<size_t,size_t> > vMatchedIndices;
-	// 匹配pKF1与pKF2之间未被匹配的特征点并通过bow加速，并校验是否符合对级约束。vMatchedPairs匹配成功的特征点在各自关键帧中的id。
+        // 匹配pKF1与pKF2之间未被匹配的特征点并通过bow加速，并校验是否符合对级约束。vMatchedPairs匹配成功的特征点在各自关键帧中的id。
         matcher.SearchForTriangulation(mpCurrentKeyFrame,pKF2,F12,vMatchedIndices,false);
 
         cv::Mat Rcw2 = pKF2->GetRotation();
@@ -531,6 +559,7 @@ void LocalMapping::CreateNewMapPoints()
 // 检查并融合与当前关键帧共视程度高的帧重复的MapPoints
 void LocalMapping::SearchInNeighbors()
 {
+    // 步骤1：获得当前关键帧在covisibility图中权重排名前nn的邻接关键帧
     // Retrieve neighbor keyframes
     int nn = 10;
     if(mbMonocular)
@@ -562,6 +591,7 @@ void LocalMapping::SearchInNeighbors()
     }
 
 
+    // 步骤2：将当前帧的MapPoints分别与一级二级相邻帧(的MapPoints)进行融合
     // Search matches by projection from current KF in target KFs
     ORBmatcher matcher;
     //取出当前关键帧的mappoint与pKFi中的mappoint融合
@@ -571,16 +601,20 @@ void LocalMapping::SearchInNeighbors()
     {
         KeyFrame* pKFi = *vit;
 
-        //将vpMapPoints中的mappoint与pKF的特征点进行匹配，若匹配的特征点已有mappoint与其匹配，
-        //则选择被观测次数多的mappoint，并抹去没有选择的那个mappoint，此为mappoint的融合
+        // 投影当前帧的MapPoints到相邻关键帧pKFi中，并判断是否有重复的MapPoints
+        // 1.如果MapPoint能匹配关键帧的特征点，并且该点有对应的MapPoint，那么将两个MapPoint合并（选择观测数多的）
+        // 2.如果MapPoint能匹配关键帧的特征点，并且该点没有对应的MapPoint，那么为该点添加MapPoint
         matcher.Fuse(pKFi,vpMapPointMatches);
     }
 
     // Search matches by projection from target KFs in current KF
     // 获取vpTargetKFs所有良好MapPoints的集合
+    // 用于存储一级邻接和二级邻接关键帧所有MapPoints的集合
     vector<MapPoint*> vpFuseCandidates;
     vpFuseCandidates.reserve(vpTargetKFs.size()*vpMapPointMatches.size());
 
+    // 步骤3：将一级二级相邻帧的MapPoints分别与当前帧（的MapPoints）进行融合
+    // 遍历每一个一级邻接和二级邻接关键帧
     for(vector<KeyFrame*>::iterator vitKF=vpTargetKFs.begin(), vendKF=vpTargetKFs.end(); vitKF!=vendKF; vitKF++)
     {
         KeyFrame* pKFi = *vitKF;
@@ -590,10 +624,13 @@ void LocalMapping::SearchInNeighbors()
         for(vector<MapPoint*>::iterator vitMP=vpMapPointsKFi.begin(), vendMP=vpMapPointsKFi.end(); vitMP!=vendMP; vitMP++)
         {
             MapPoint* pMP = *vitMP;
+            // 判断MapPoints是否为坏点，或者是否已经加进集合vpFuseCandidates
             if(!pMP)
                 continue;
             if(pMP->isBad() || pMP->mnFuseCandidateForKF == mpCurrentKeyFrame->mnId)
                 continue;
+
+            // 加入集合，并标记已经加入
             pMP->mnFuseCandidateForKF = mpCurrentKeyFrame->mnId;
             vpFuseCandidates.push_back(pMP);
         }
@@ -604,7 +641,7 @@ void LocalMapping::SearchInNeighbors()
 
 
     // Update points
-    //更新mappoint属性
+    // 步骤4：更新当前帧MapPoints的描述子，深度，观测主方向等属性
     vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
     for(size_t i=0, iend=vpMapPointMatches.size(); i<iend; i++)
     {
@@ -626,22 +663,38 @@ void LocalMapping::SearchInNeighbors()
     mpCurrentKeyFrame->UpdateConnections();
 }
 
+/**
+ * 根据两关键帧的姿态计算两个关键帧之间的基本矩阵
+ * @param  pKF1 关键帧1
+ * @param  pKF2 关键帧2
+ * @return      F12 : 第一帧特征点投影到第二帧形成极线的基本矩阵
+ */
 cv::Mat LocalMapping::ComputeF12(KeyFrame *&pKF1, KeyFrame *&pKF2)
 {
+    // 这里的PKF2对应着PPT的左侧的相机
+    // PKF1是右侧的相机
     cv::Mat R1w = pKF1->GetRotation();
     cv::Mat t1w = pKF1->GetTranslation();
     cv::Mat R2w = pKF2->GetRotation();
-    cv::Mat t2w = pKF2->GetTranslation();
+    cv::Mat t2w = pKF2->GetTranslation();   //世界坐标系到第二个相机坐标系的平移，世界坐标系原点在第二个相机坐标系的坐标
 
+
+    // R2w: 世界坐标系到第二个相机坐标系的旋转
+    // R12： 第二个相机坐标系到第一个相机坐标系的旋转
     cv::Mat R12 = R1w*R2w.t();
+    // -R2w.t()*t2w = tw2    第二个相机坐标系原点在世界坐标系的表示
+    // t12 = -R1w * tw2 + t1w  ===> 将第二个相机坐标系原点变换到第一个相机坐标系下，即第二个相机坐标系原点在第一个相机坐标系的坐标
     cv::Mat t12 = -R1w*R2w.t()*t2w+t1w;
 
+    // 返回第二个相机坐标系到第一个相机坐标系的平移t12的反对称矩阵
     cv::Mat t12x = SkewSymmetricMatrix(t12);
 
     const cv::Mat &K1 = pKF1->mK;
     const cv::Mat &K2 = pKF2->mK;
 
-
+    // (P' * o) X (P'*P^{-1}*u) = P' * [o]_x * P^{-1}*u
+    // o = t12
+    // K1.t().inv() : 不理解，为什么不用直接的 K1
     return K1.t().inv()*t12x*R12*K2.inv();
 }
 
@@ -722,6 +775,12 @@ void LocalMapping::InterruptBA()
     mbAbortBA = true;
 }
 
+/**
+ * @brief 关键帧剔除
+ *
+ * 在Covisibility Graph中的关键帧，其90%以上的MapPoints能被其他关键帧（至少3个）观测到，则认为该关键帧为冗余关键帧。
+ * @see VI-E Local Keyframe Culling
+ */
 void LocalMapping::KeyFrameCulling()
 {
     // Check redundant keyframes (only local keyframes)
@@ -729,6 +788,7 @@ void LocalMapping::KeyFrameCulling()
     // in at least other 3 keyframes (in the same or finer scale)
     // We only consider close stereo points
   
+    // 步骤1：根据Covisibility Graph提取当前帧的共视关键帧
     //返回与当前关键帧具有连接关系的关键帧，其顺序按照共视的mappoint数量递减排序
     vector<KeyFrame*> vpLocalKeyFrames = mpCurrentKeyFrame->GetVectorCovisibleKeyFrames();
 
@@ -738,14 +798,15 @@ void LocalMapping::KeyFrameCulling()
         KeyFrame* pKF = *vit;
         if(pKF->mnId==0)
             continue;
-        // 提取每个共视关键帧的MapPoints
+        // 步骤2：提取每个共视关键帧的MapPoints
         const vector<MapPoint*> vpMapPoints = pKF->GetMapPointMatches();
 
         int nObs = 3;
         const int thObs=nObs;
         int nRedundantObservations=0;
         int nMPs=0;
-        //遍历该局部关键帧pKF的MapPoints，判断是否90%以上的MapPoints能被其它关键帧（至少3个）观测到
+
+        // 步骤3：遍历该局部关键帧的MapPoints，判断是否90%以上的MapPoints能被其它关键帧（至少3个）观测到
         for(size_t i=0, iend=vpMapPoints.size(); i<iend; i++)
         {
             MapPoint* pMP = vpMapPoints[i];
@@ -753,6 +814,7 @@ void LocalMapping::KeyFrameCulling()
             {
                 if(!pMP->isBad())
                 {
+                    // 对于双目，仅考虑近处的MapPoints，不超过mbf * 35 / fx
                     if(!mbMonocular)
                     {
                         if(pKF->mvDepth[i]>pKF->mThDepth || pKF->mvDepth[i]<0)
@@ -800,7 +862,9 @@ void LocalMapping::KeyFrameCulling()
                 }
             }
         }  
+        //步骤4
         //如果当前这个pKF的90%mappoint被其他关键帧观测到，则丢弃这个与mpCurrentKeyFrame有共视关系的关键帧pKF
+        //另外，如果这个关键帧正在被LoopClosing.cc处理，则会被设置noErace标志位，该帧不会被丢掉
         if(nRedundantObservations>0.9*nMPs)
             pKF->SetBadFlag();
     }

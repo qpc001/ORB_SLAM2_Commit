@@ -92,13 +92,19 @@ protected:
     bool DetectLoop();
 
     /**
-    * 1. 候选帧和当前关键帧通过Bow加速描述子的匹配，剔除特征点匹配数少的闭环候选帧
-    * 2. 利用RANSAC粗略地计算出当前帧与闭环帧的Sim3，选出较好的那个sim3，确定闭环帧
-    * 2. 根据确定的闭环帧和对应的Sim3，对3D点进行投影找到更多匹配，通过优化的方法计算更精确的Sim3。
-    * 3. 将闭环帧以及闭环帧相连的关键帧的MapPoints与当前帧的点进行匹配（当前帧---闭环帧+相连关键帧）
-    */
+     * @brief 计算当前帧与闭环帧的Sim3变换等
+     *
+     * 1. 通过Bow加速描述子的匹配，利用RANSAC粗略地计算出当前帧与闭环帧的Sim3（当前帧---闭环帧）
+     * 2. 根据估计的Sim3，对3D点进行投影找到更多匹配，通过优化的方法计算更精确的Sim3（当前帧---闭环帧）
+     * 3. 将闭环帧以及闭环帧相连的关键帧的MapPoints与当前帧的点进行匹配（当前帧---闭环帧+相连关键帧）
+     *
+     * 注意以上匹配的结果均都存在成员变量mvpCurrentMatchedPoints中，
+     * 实际的更新步骤见CorrectLoop()步骤3：Start Loop Fusion
+     */
     bool ComputeSim3();
-    /**针对CorrectedPosesMap里的关键帧，mvpLoopMapPoints投影到这个关键帧上与其特征点并进行匹配。
+
+    /** 目的： 尽量使用闭环关键帧及其共视关键帧所观测到的mappoint来替换旧的mappoint
+     * 针对CorrectedPosesMap里的关键帧，mvpLoopMapPoints投影到这个关键帧上与其特征点并进行匹配。
      * 如果匹配成功的特征点本身就有mappoint，就用mvpLoopMapPoints里匹配的点替换，替换下来的mappoint则销毁
      * @param CorrectedPosesMap 表示和当前帧在covisibility相连接的keyframe及其修正的位姿
      */
@@ -148,11 +154,11 @@ protected:
     //由DetectLoop()得到的候选关键帧
     std::vector<KeyFrame*> mvpEnoughConsistentCandidates;
     
-    //将mpMatchedKF闭环关键帧相连的关键帧全部取出来放入vpLoopConnectedKFs
     std::vector<KeyFrame*> mvpCurrentConnectedKFs;
     //将mvpLoopMapPoints投影到当前关键帧mpCurrentKF进行投影得到的匹配
     std::vector<MapPoint*> mvpCurrentMatchedPoints;
-    // 将vpLoopConnectedKFs的MapPoints取出来放入mvpLoopMapPoints
+    //将vpLoopConnectedKFs的MapPoints取出来放入mvpLoopMapPoints
+    //闭环关键帧及其所有共视关键帧的mappoint储存到mvpLoopMapPoints
     std::vector<MapPoint*> mvpLoopMapPoints;
     //表示通过ComputeSim3()算的当前帧mpCurrentKF到世界坐标系的变换
     cv::Mat mScw;

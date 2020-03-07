@@ -43,6 +43,7 @@ MapDrawer::MapDrawer(Map* pMap, const string &strSettingPath):mpMap(pMap)
 
 void MapDrawer::DrawMapPoints()
 {
+    //取地图上所有mappoint
     const vector<MapPoint*> &vpMPs = mpMap->GetAllMapPoints();
     const vector<MapPoint*> &vpRefMPs = mpMap->GetReferenceMapPoints();
 
@@ -86,8 +87,9 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph)
     const float h = w*0.75;
     const float z = w*0.6;
 
+    //取地图上所有关键帧
     const vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames();
-
+    //绘制关键帧
     if(bDrawKF)
     {
         for(size_t i=0; i<vpKFs.size(); i++)
@@ -127,7 +129,7 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph)
             glPopMatrix();
         }
     }
-
+    // 绘制图
     if(bDrawGraph)
     {
         glLineWidth(mGraphLineWidth);
@@ -137,31 +139,39 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph)
         for(size_t i=0; i<vpKFs.size(); i++)
         {
             // Covisibility Graph
+            // 按权重取地图关键帧的共视关键帧集合，共视点数超过100的
             const vector<KeyFrame*> vCovKFs = vpKFs[i]->GetCovisiblesByWeight(100);
+            // 地图关键帧i获取相机光心
             cv::Mat Ow = vpKFs[i]->GetCameraCenter();
             if(!vCovKFs.empty())
             {
+                //遍历共视的关键帧
                 for(vector<KeyFrame*>::const_iterator vit=vCovKFs.begin(), vend=vCovKFs.end(); vit!=vend; vit++)
                 {
                     if((*vit)->mnId<vpKFs[i]->mnId)
                         continue;
+                    //获取共视关键帧的相机光心
                     cv::Mat Ow2 = (*vit)->GetCameraCenter();
+                    //连线
                     glVertex3f(Ow.at<float>(0),Ow.at<float>(1),Ow.at<float>(2));
                     glVertex3f(Ow2.at<float>(0),Ow2.at<float>(1),Ow2.at<float>(2));
                 }
             }
 
             // Spanning tree
+            // 获取Spanning tree，共视程度高的两个点构成Spanning tree子和父节点
             KeyFrame* pParent = vpKFs[i]->GetParent();
             if(pParent)
             {
+                //连线
                 cv::Mat Owp = pParent->GetCameraCenter();
                 glVertex3f(Ow.at<float>(0),Ow.at<float>(1),Ow.at<float>(2));
                 glVertex3f(Owp.at<float>(0),Owp.at<float>(1),Owp.at<float>(2));
             }
 
             // Loops
-            set<KeyFrame*> sLoopKFs = vpKFs[i]->GetLoopEdges();
+            // 回环边
+            set<KeyFrame*> sLoopKFs = vpKFs[i]->GetLoopEdges(); //获取地图关键帧i的回环边
             for(set<KeyFrame*>::iterator sit=sLoopKFs.begin(), send=sLoopKFs.end(); sit!=send; sit++)
             {
                 if((*sit)->mnId<vpKFs[i]->mnId)
@@ -221,12 +231,15 @@ void MapDrawer::DrawCurrentCamera(pangolin::OpenGlMatrix &Twc)
 
 void MapDrawer::SetCurrentCameraPose(const cv::Mat &Tcw)
 {
+    //设置图形界面的相机位姿，在tracking里面被调用
     unique_lock<mutex> lock(mMutexCamera);
     mCameraPose = Tcw.clone();
 }
 
 void MapDrawer::GetCurrentOpenGLCameraMatrix(pangolin::OpenGlMatrix &M)
 {
+    //获取相机位姿
+    //相机位姿在tracking里面被调用MapDrawer::SetCurrentCameraPose进行设置
     if(!mCameraPose.empty())
     {
         cv::Mat Rwc(3,3,CV_32F);

@@ -38,34 +38,34 @@
 
 namespace g2o {
 
-  using namespace Eigen;
+using namespace Eigen;
 
-  /**
+/**
  * \brief Sim3 Vertex, (x,y,z,qw,qx,qy,qz)
  * the parameterization for the increments constructed is a 7d vector
  * (x,y,z,qx,qy,qz) (note that we leave out the w part of the quaternion.
  */
-  class VertexSim3Expmap : public BaseVertex<7, Sim3>
-  {
-  public:
+class VertexSim3Expmap : public BaseVertex<7, Sim3>
+{
+public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     VertexSim3Expmap();
     virtual bool read(std::istream& is);
     virtual bool write(std::ostream& os) const;
 
     virtual void setToOriginImpl() {
-      _estimate = Sim3();
+        _estimate = Sim3();
     }
 
     virtual void oplusImpl(const double* update_)
     {
-      Eigen::Map<Vector7d> update(const_cast<double*>(update_));
+        Eigen::Map<Vector7d> update(const_cast<double*>(update_));
 
-      if (_fix_scale)
-        update[6] = 0;
+        if (_fix_scale)
+            update[6] = 0;
 
-      Sim3 s(update);
-      setEstimate(s*estimate());
+        Sim3 s(update);
+        setEstimate(s*estimate());
     }
 
     Vector2d _principle_point1, _principle_point2;
@@ -73,63 +73,63 @@ namespace g2o {
 
     Vector2d cam_map1(const Vector2d & v) const
     {
-      Vector2d res;
-      res[0] = v[0]*_focal_length1[0] + _principle_point1[0];
-      res[1] = v[1]*_focal_length1[1] + _principle_point1[1];
-      return res;
+        Vector2d res;
+        res[0] = v[0]*_focal_length1[0] + _principle_point1[0];
+        res[1] = v[1]*_focal_length1[1] + _principle_point1[1];
+        return res;
     }
 
     Vector2d cam_map2(const Vector2d & v) const
     {
-      Vector2d res;
-      res[0] = v[0]*_focal_length2[0] + _principle_point2[0];
-      res[1] = v[1]*_focal_length2[1] + _principle_point2[1];
-      return res;
+        Vector2d res;
+        res[0] = v[0]*_focal_length2[0] + _principle_point2[0];
+        res[1] = v[1]*_focal_length2[1] + _principle_point2[1];
+        return res;
     }
 
     bool _fix_scale;
 
 
-  protected:
-  };
+protected:
+};
 
-  /**
+/**
  * \brief 7D edge between two Vertex7
  */
-  class EdgeSim3 : public BaseBinaryEdge<7, Sim3, VertexSim3Expmap, VertexSim3Expmap>
-  {
-  public:
+class EdgeSim3 : public BaseBinaryEdge<7, Sim3, VertexSim3Expmap, VertexSim3Expmap>
+{
+public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     EdgeSim3();
     virtual bool read(std::istream& is);
     virtual bool write(std::ostream& os) const;
     void computeError()
     {
-      const VertexSim3Expmap* v1 = static_cast<const VertexSim3Expmap*>(_vertices[0]);
-      const VertexSim3Expmap* v2 = static_cast<const VertexSim3Expmap*>(_vertices[1]);
+        const VertexSim3Expmap* v1 = static_cast<const VertexSim3Expmap*>(_vertices[0]);
+        const VertexSim3Expmap* v2 = static_cast<const VertexSim3Expmap*>(_vertices[1]);
 
-      Sim3 C(_measurement);
-      Sim3 error_=C*v1->estimate()*v2->estimate().inverse();
-      _error = error_.log();
+        Sim3 C(_measurement);
+        Sim3 error_=C*v1->estimate()*v2->estimate().inverse();
+        _error = error_.log();
     }
 
     virtual double initialEstimatePossible(const OptimizableGraph::VertexSet& , OptimizableGraph::Vertex* ) { return 1.;}
     virtual void initialEstimate(const OptimizableGraph::VertexSet& from, OptimizableGraph::Vertex* /*to*/)
     {
-      VertexSim3Expmap* v1 = static_cast<VertexSim3Expmap*>(_vertices[0]);
-      VertexSim3Expmap* v2 = static_cast<VertexSim3Expmap*>(_vertices[1]);
-      if (from.count(v1) > 0)
-  v2->setEstimate(measurement()*v1->estimate());
-      else
-  v1->setEstimate(measurement().inverse()*v2->estimate());
+        VertexSim3Expmap* v1 = static_cast<VertexSim3Expmap*>(_vertices[0]);
+        VertexSim3Expmap* v2 = static_cast<VertexSim3Expmap*>(_vertices[1]);
+        if (from.count(v1) > 0)
+            v2->setEstimate(measurement()*v1->estimate());
+        else
+            v1->setEstimate(measurement().inverse()*v2->estimate());
     }
-  };
+};
 
 
 /**/
 class EdgeSim3ProjectXYZ : public  BaseBinaryEdge<2, Vector2d,  VertexSBAPointXYZ, VertexSim3Expmap>
 {
-  public:
+public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     EdgeSim3ProjectXYZ();
     virtual bool read(std::istream& is);
@@ -137,21 +137,29 @@ class EdgeSim3ProjectXYZ : public  BaseBinaryEdge<2, Vector2d,  VertexSBAPointXY
 
     void computeError()
     {
-      const VertexSim3Expmap* v1 = static_cast<const VertexSim3Expmap*>(_vertices[1]);
-      const VertexSBAPointXYZ* v2 = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);
+        //v1= 顶点1 ： 待优化的值 sim3 ： 候选帧pKF2到当前帧pKF1的Sim3变换
+        //v2= 顶点0 ： 闭环关键帧pKF2的mappoint在相机2坐标系的坐标
+        const VertexSim3Expmap* v1 = static_cast<const VertexSim3Expmap*>(_vertices[1]);
+        const VertexSBAPointXYZ* v2 = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);
 
-      Vector2d obs(_measurement);
-      _error = obs-v1->cam_map1(project(v1->estimate().map(v2->estimate())));
+
+        //观测：当前帧对应的特征点(u,v)
+        Vector2d obs(_measurement);
+        //v1->estimate().map(v2->estimate()): 利用sim3，将闭环关键帧pKF2的mappoint在相机2坐标系的坐标转换到相机1坐标系
+        //project(相机坐标系下的点): 将相机坐标系的点变成归一化平面上的点
+        //cam_map1(归一化平面的点)：利用经过畸变矫正后的相机内参，将归一化平面上的点转化为图像点(u,v)
+        _error = obs-v1->cam_map1(project(v1->estimate().map(v2->estimate())));
+        //上面就求出了将闭环关键帧pKF2的mappoint投影到相机1的图像帧上的点与当前帧pKF1特征点的误差了
     }
 
-   // virtual void linearizeOplus();
+    // virtual void linearizeOplus();
 
 };
 
 /**/
 class EdgeInverseSim3ProjectXYZ : public  BaseBinaryEdge<2, Vector2d,  VertexSBAPointXYZ, VertexSim3Expmap>
 {
-  public:
+public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     EdgeInverseSim3ProjectXYZ();
     virtual bool read(std::istream& is);
@@ -159,14 +167,22 @@ class EdgeInverseSim3ProjectXYZ : public  BaseBinaryEdge<2, Vector2d,  VertexSBA
 
     void computeError()
     {
-      const VertexSim3Expmap* v1 = static_cast<const VertexSim3Expmap*>(_vertices[1]);
-      const VertexSBAPointXYZ* v2 = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);
+        //v1= 顶点1 ： 待优化的值 sim3 ： 候选帧pKF2到当前帧pKF1的Sim3变换
+        //v2= 顶点0 ： 当前帧pKF1的mappoint在相机1坐标系的坐标
+        const VertexSim3Expmap* v1 = static_cast<const VertexSim3Expmap*>(_vertices[1]);
+        const VertexSBAPointXYZ* v2 = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);
 
-      Vector2d obs(_measurement);
-      _error = obs-v1->cam_map2(project(v1->estimate().inverse().map(v2->estimate())));
+        //观测：候选帧pKF2对应的特征点(u,v)
+        Vector2d obs(_measurement);
+        //v1->estimate().inverse()： 当前帧pKF1到候选帧pKF2的Sim3变换
+        //v1->estimate().inverse().map(v2->estimate()):利用sim3，将当前帧pKF1的mappoint在相机1坐标系的坐标转换到相机2坐标系
+        //project(相机坐标系下的点): 将相机坐标系的点变成归一化平面上的点
+        //cam_map2(归一化平面的点)：利用经过畸变矫正后的相机内参，将归一化平面上的点转化为图像点(u,v)
+        _error = obs-v1->cam_map2(project(v1->estimate().inverse().map(v2->estimate())));
+        //上面就求出了将当前帧pKF1的mappoint投影到相机2的图像帧上的点与闭环关键帧pKF2特征点的误差了
     }
 
-   // virtual void linearizeOplus();
+    // virtual void linearizeOplus();
 
 };
 

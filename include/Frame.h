@@ -131,7 +131,7 @@ public:
 
     // Calibration matrix and OpenCV distortion parameters.
     // 相机内参
-    cv::Mat mK;
+    cv::Mat mK; //mk貌似是经过畸变矫正的相机内参，由cv::undistortPoints实现?
     static float fx;
     static float fy;
     static float cx;
@@ -141,6 +141,7 @@ public:
     cv::Mat mDistCoef;  // 畸变参数
 
     // Stereo baseline multiplied by fx.
+    // 双目基线 * fx
     float mbf;
 
     // Stereo baseline in meters.
@@ -164,8 +165,8 @@ public:
     // Corresponding stereo coordinate and depth for each keypoint.
     // "Monocular" keypoints have a negative value.
     // 对每个关键点进行立体坐标系和深度关联?
-    std::vector<float> mvuRight;
-    std::vector<float> mvDepth;
+    std::vector<float> mvuRight;    //mvuRight[左目第i个特征点]=左目第i个特征点匹配的右目特征点的x值
+    std::vector<float> mvDepth;     //mvDepth[左目第i个特征点]=左目第i个特征点深度
 
     // Bag of Words Vector structures.
     //mBowVec本质是一个map<WordId, WordValue>

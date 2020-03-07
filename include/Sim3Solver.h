@@ -95,7 +95,7 @@ protected:
     cv::Mat mR12i;
     cv::Mat mt12i;
     float ms12i;
-    cv::Mat mT12i;
+    cv::Mat mT12i;  //从坐标系2到1的变换
     cv::Mat mT21i;
     std::vector<bool> mvbInliersi;
     int mnInliersi;

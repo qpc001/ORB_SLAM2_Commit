@@ -186,15 +186,17 @@ void MapPoint::Replace(MapPoint* pMP)
     {
         unique_lock<mutex> lock1(mMutexFeatures);
         unique_lock<mutex> lock2(mMutexPos);
+        //取这个mappoint的被观测信息(此MapPoint对应的是哪个KeyFrame中哪个特征点)
         obs=mObservations;
-        mObservations.clear();
-        mbBad=true;
+        mObservations.clear();  //清空
+        mbBad=true;             //设置为坏点
         nvisible = mnVisible;
         nfound = mnFound;
         mpReplaced = pMP;
     }
 
     //清除此mappoint在各个keyframe中的痕迹
+    //使用pMP来替换相关信息
     for(map<KeyFrame*,size_t>::iterator mit=obs.begin(), mend=obs.end(); mit!=mend; mit++)
     {
         // Replace measurement in keyframe

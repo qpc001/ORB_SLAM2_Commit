@@ -321,7 +321,7 @@ void Tracking:: Track()
             {
                 // Local Mapping might have changed some MapPoints tracked in last frame
                 // lastframe中可以看到的mappoint替换为lastframe储存的备胎mappoint点mpReplaced，也就是更新mappoint
-                // 暂时不知道有什么用
+                // 更新一下mappoint，在回环的时候使用闭环关键帧的mappoint替换一些旧的mappoint
                 CheckReplacedInLastFrame();
 
                 // 运动模型是空的或刚完成重定位
@@ -586,56 +586,71 @@ void Tracking:: Track()
 
 }
 
-
+// 双目初始化
 void Tracking::StereoInitialization()
 {
     //特征点要大于500个才能初始化
     if(mCurrentFrame.N>500)
     {
         // Set Frame pose to the origin
+        // 设置当前帧位姿
         mCurrentFrame.SetPose(cv::Mat::eye(4,4,CV_32F));
 
         // Create KeyFrame
+        // 创建关键帧
         KeyFrame* pKFini = new KeyFrame(mCurrentFrame,mpMap,mpKeyFrameDB);
 
         // Insert KeyFrame in the map
+        // 关键帧插入地图
         mpMap->AddKeyFrame(pKFini);
 
         // Create MapPoints and asscoiate to KeyFrame
-        for(int i=0; i<mCurrentFrame.N;i++)
+        // 双目、RGBD创建mappoint
+        for(int i=0; i<mCurrentFrame.N;i++) //遍历当前帧特征点
         {
             float z = mCurrentFrame.mvDepth[i];
             if(z>0)
             {
+                // 将特征点根据当前帧位姿(上面设置了为世界坐标系原点)，恢复对应的3D点
                 cv::Mat x3D = mCurrentFrame.UnprojectStereo(i);
                 MapPoint* pNewMP = new MapPoint(x3D,pKFini,mpMap);
+                // mappoint增加观测(表示可以被当前帧观测到)
                 pNewMP->AddObservation(pKFini,i);
+                // 当前帧加入可以观测到的mappoint
                 pKFini->AddMapPoint(pNewMP,i);
+                // 计算此mappoint能被看到的特征点中找出最能代表此mappoint的描述子
                 pNewMP->ComputeDistinctiveDescriptors();
+                // 更新此mappoint参考帧光心到mappoint平均观测方向以及观测距离范围
                 pNewMP->UpdateNormalAndDepth();
+                // 地图插入mappoint
                 mpMap->AddMapPoint(pNewMP);
-
+                // 设置当前帧第i个特征点的mappoint
                 mCurrentFrame.mvpMapPoints[i]=pNewMP;
             }
         }
 
         cout << "New map created with " << mpMap->MapPointsInMap() << " points" << endl;
 
+        //LocalMapping插入关键帧
         mpLocalMapper->InsertKeyFrame(pKFini);
 
+        //当前帧传保存为LastFrame
         mLastFrame = Frame(mCurrentFrame);
         mnLastKeyFrameId=mCurrentFrame.mnId;
         mpLastKeyFrame = pKFini;
 
+        //储存当前帧
         mvpLocalKeyFrames.push_back(pKFini);
+        //设置局部地图mappoint
         mvpLocalMapPoints=mpMap->GetAllMapPoints();
         mpReferenceKF = pKFini;
         mCurrentFrame.mpReferenceKF = pKFini;
 
+        // 将局部地图mappoint设置为参考mappoint，用于绘图
         mpMap->SetReferenceMapPoints(mvpLocalMapPoints);
-
+        //按顺序储存关键帧到地图
         mpMap->mvpKeyFrameOrigins.push_back(pKFini);
-
+        //设置绘图器相机位姿为当前帧位姿(用于可视化)
         mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.mTcw);
 
         mState=OK;
@@ -650,25 +665,25 @@ void Tracking::MonocularInitialization()
     if(!mpInitializer)
     {
         // Set Reference Frame
-	//如果如果当前帧特征点数量大于100
+        //如果如果当前帧特征点数量大于100
         if(mCurrentFrame.mvKeys.size()>100)
         {
-	    //设置mInitialFrame，和mLastFrame
+            //设置mInitialFrame，和mLastFrame
             mInitialFrame = Frame(mCurrentFrame);
             mLastFrame = Frame(mCurrentFrame);
-	    // mvbPrevMatched最大的情况就是所有特征点都被跟踪上
+            // mvbPrevMatched最大的情况就是所有特征点都被跟踪上
             mvbPrevMatched.resize(mCurrentFrame.mvKeysUn.size());
             for(size_t i=0; i<mCurrentFrame.mvKeysUn.size(); i++)
                 mvbPrevMatched[i]=mCurrentFrame.mvKeysUn[i].pt;
 
-	    //确认mpInitializer指向NULL
+            //确认mpInitializer指向NULL
             if(mpInitializer)
                 delete mpInitializer;
 
             mpInitializer =  new Initializer(mCurrentFrame,1.0,200);
 	    
-	    //将mvIniMatches全部初始化为-1
-        //初始化时得到的特征点匹配，大小是mInitialFrame的特征点数量，其值是当前帧特征点序号
+            //将mvIniMatches全部初始化为-1
+            //初始化时得到的特征点匹配，大小是mInitialFrame的特征点数量，其值是当前帧特征点序号
             fill(mvIniMatches.begin(),mvIniMatches.end(),-1);
 
             return;
@@ -678,11 +693,11 @@ void Tracking::MonocularInitialization()
     else
     {
         // Try to initialize
-	//尝试初始化
-	//如果当前帧特征点数量<=100
+        //尝试初始化
+        //如果当前帧特征点数量<=100
         if((int)mCurrentFrame.mvKeys.size()<=100)
         {
-	    //删除mpInitializer指针并指向NULL
+            //删除mpInitializer指针并指向NULL
             delete mpInitializer;
             mpInitializer = static_cast<Initializer*>(NULL);
             fill(mvIniMatches.begin(),mvIniMatches.end(),-1);
@@ -692,11 +707,11 @@ void Tracking::MonocularInitialization()
         // Find correspondences
         //新建一个ORBmatcher对象
         ORBmatcher matcher(0.9,true);
-	//寻找特征点匹配
+        //寻找特征点匹配
         int nmatches = matcher.SearchForInitialization(mInitialFrame,mCurrentFrame,mvbPrevMatched,mvIniMatches,100);
 
         // Check if there are enough correspondences
-	//如果匹配的点过少，则删除当前的初始化器
+        //如果匹配的点过少，则删除当前的初始化器
         if(nmatches<100)
         {
             delete mpInitializer;
@@ -714,8 +729,8 @@ void Tracking::MonocularInitialization()
         // 通过H模型或F模型进行单目初始化，得到两帧间相对运动、初始MapPoints
         if(mpInitializer->Initialize(mCurrentFrame, mvIniMatches, Rcw, tcw, mvIniP3D, vbTriangulated))
         {
-	    //ReconstructH，或者ReconstructF中解出RT后，会有一些点不能三角化重投影成功。
-	    //在根据vbTriangulated中特征点三角化投影成功的情况，去除一些匹配点
+            //ReconstructH，或者ReconstructF中解出RT后，会有一些点不能三角化重投影成功。
+            //在根据vbTriangulated中特征点三角化投影成功的情况，去除一些匹配点
             for(size_t i=0, iend=mvIniMatches.size(); i<iend;i++)
             {
                 if(mvIniMatches[i]>=0 && !vbTriangulated[i])
@@ -732,7 +747,7 @@ void Tracking::MonocularInitialization()
             cv::Mat Tcw = cv::Mat::eye(4,4,CV_32F);
             Rcw.copyTo(Tcw.rowRange(0,3).colRange(0,3));
             tcw.copyTo(Tcw.rowRange(0,3).col(3));
-	    //将mpInitializer->Initialize算出的R和t拷贝到当前帧mCurrentFrame的位姿
+            //将mpInitializer->Initialize算出的R和t拷贝到当前帧mCurrentFrame的位姿
             mCurrentFrame.SetPose(Tcw);
 
             //创建单目的初始化地图
@@ -859,14 +874,14 @@ void Tracking::CreateInitialMapMonocular()
     //上一帧设置为mCurrentFrame
     mLastFrame = Frame(mCurrentFrame);
 
-    //??
+    // 将局部地图mappoint设置为参考mappoint，用于绘图
     mpMap->SetReferenceMapPoints(mvpLocalMapPoints);
 
     //地图绘制器
     //设置相机位姿为当前关键帧位姿
     mpMapDrawer->SetCurrentCameraPose(pKFcur->GetPose());
 
-    //设置关键帧原点?
+    //按顺序储存关键帧到地图
     mpMap->mvpKeyFrameOrigins.push_back(pKFini);
 
     mState=OK;
@@ -1401,7 +1416,7 @@ void Tracking::SearchLocalPoints()
             }
             else
             {
-		//预测这个mappoint会被匹配
+                // 预测这个mappoint会被匹配(这个在LocalMapping.cc里面会用到)
                 pMP->IncreaseVisible();
                 // 记录该mappoint上一次被观测是当前帧
                 pMP->mnLastFrameSeen = mCurrentFrame.mnId;
@@ -1430,7 +1445,7 @@ void Tracking::SearchLocalPoints()
         //如果此mappoint点在视野范围内
         if(mCurrentFrame.isInFrustum(pMP,0.5))
         {
-            //预测这个mappoint会被匹配
+            // 预测这个mappoint会被匹配(这个在LocalMapping.cc里面会用到)
             pMP->IncreaseVisible();
             nToMatch++;
         }

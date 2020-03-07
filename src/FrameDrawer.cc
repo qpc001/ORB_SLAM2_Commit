@@ -38,10 +38,15 @@ FrameDrawer::FrameDrawer(Map* pMap):mpMap(pMap)
 cv::Mat FrameDrawer::DrawFrame()
 {
     cv::Mat im;
+    //参考关键帧的特征点
     vector<cv::KeyPoint> vIniKeys; // Initialization: KeyPoints in reference frame
+    //匹配关系
     vector<int> vMatches; // Initialization: correspondeces with reference keypoints
+    //当前帧特征点
     vector<cv::KeyPoint> vCurrentKeys; // KeyPoints in current frame
+    //正在跟踪的点
     vector<bool> vbVO, vbMap; // Tracked MapPoints in current frame
+    //跟踪状态
     int state; // Tracking state
 
     //Copy variables within scoped mutex
@@ -53,20 +58,25 @@ cv::Mat FrameDrawer::DrawFrame()
 
         mIm.copyTo(im);
 
+        //还没有初始化
         if(mState==Tracking::NOT_INITIALIZED)
         {
+            //Tracking.cc 通过调用FrameDrawer::Update()
+            // 来设置mvCurrentKeys，mvIniKeys，mvIniMatches
             vCurrentKeys = mvCurrentKeys;
             vIniKeys = mvIniKeys;
             vMatches = mvIniMatches;
         }
         else if(mState==Tracking::OK)
         {
+            //正常跟踪
             vCurrentKeys = mvCurrentKeys;
             vbVO = mvbVO;
             vbMap = mvbMap;
         }
         else if(mState==Tracking::LOST)
         {
+            //跟丢了，只绘制当前帧特征点
             vCurrentKeys = mvCurrentKeys;
         }
     } // destroy scoped mutex -> release mutex
@@ -77,6 +87,7 @@ cv::Mat FrameDrawer::DrawFrame()
     //Draw
     if(state==Tracking::NOT_INITIALIZED) //INITIALIZING
     {
+        //初始化的时候，就绘制参考关键帧的特征点和当前帧的配对连线
         for(unsigned int i=0; i<vMatches.size(); i++)
         {
             if(vMatches[i]>=0)
@@ -88,6 +99,7 @@ cv::Mat FrameDrawer::DrawFrame()
     }
     else if(state==Tracking::OK) //TRACKING
     {
+        //正常跟踪
         mnTracked=0;
         mnTrackedVO=0;
         const float r = 5;
@@ -96,6 +108,7 @@ cv::Mat FrameDrawer::DrawFrame()
         {
             if(vbVO[i] || vbMap[i])
             {
+                //r 是正方形边框边长
                 cv::Point2f pt1,pt2;
                 pt1.x=vCurrentKeys[i].pt.x-r;
                 pt1.y=vCurrentKeys[i].pt.y-r;
@@ -103,14 +116,16 @@ cv::Mat FrameDrawer::DrawFrame()
                 pt2.y=vCurrentKeys[i].pt.y+r;
 
                 // This is a match to a MapPoint in the map
+                // 如果这个点与地图上的点匹配到了
                 if(vbMap[i])
                 {
+                    //就绘制一个绿色的框
                     cv::rectangle(im,pt1,pt2,cv::Scalar(0,255,0));
                     cv::circle(im,vCurrentKeys[i].pt,2,cv::Scalar(0,255,0),-1);
                     mnTracked++;
                 }
                 else // This is match to a "visual odometry" MapPoint created in the last frame
-                {
+                {   //
                     cv::rectangle(im,pt1,pt2,cv::Scalar(255,0,0));
                     cv::circle(im,vCurrentKeys[i].pt,2,cv::Scalar(255,0,0),-1);
                     mnTrackedVO++;
